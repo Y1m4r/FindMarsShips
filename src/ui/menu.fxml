@@ -10,12 +10,12 @@
    <center>
       <AnchorPane prefHeight="451.0" prefWidth="383.0" BorderPane.alignment="CENTER">
          <children>
-            <ImageView fitHeight="451.0" fitWidth="668.0" pickOnBounds="true" preserveRatio="true">
+            <ImageView fitHeight="491.0" fitWidth="641.0" pickOnBounds="true" preserveRatio="true">
                <image>
                   <Image url="@../../images/background.jpg" />
                </image>
             </ImageView>
-            <ImageView fitHeight="77.0" fitWidth="430.0" layoutX="14.0" layoutY="14.0" pickOnBounds="true" preserveRatio="true">
+            <ImageView fitHeight="77.0" fitWidth="430.0" layoutX="35.0" layoutY="29.0" pickOnBounds="true" preserveRatio="true">
                <image>
                   <Image url="@../../images/logo.png" />
                </image>
