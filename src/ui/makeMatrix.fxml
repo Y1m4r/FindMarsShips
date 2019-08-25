@@ -58,6 +58,7 @@
                </font>
             </Label>
             <Button fx:id="resultsButton" layoutX="284.0" layoutY="338.0" mnemonicParsing="false" onAction="#showResults" text="Resultados" />
+            <Button fx:id="goBack" layoutX="46.0" layoutY="430.0" mnemonicParsing="false" onAction="#backToMenu" text="&lt;------" />
          </children>
       </AnchorPane>
    </center>

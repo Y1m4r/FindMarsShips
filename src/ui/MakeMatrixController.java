@@ -32,6 +32,20 @@ public class MakeMatrixController {
 
     @FXML
     private Button resultsButton;
+    
+    @FXML
+    private Button goBack;
+    
+    @FXML
+    void backToMenu(ActionEvent event) throws IOException {
+    	FXMLLoader loader = new FXMLLoader(getClass().getResource("menu.fxml"));
+		Parent root = loader.load();
+		Scene scene = new Scene(root);
+		Stage stage = (Stage) ((Node) event.getSource()).getScene().getWindow();
+		stage.setTitle("Menu");
+		stage.setScene(scene);
+		stage.show();
+    }
 
     @FXML
     void showResults(ActionEvent event) throws IOException {
