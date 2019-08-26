@@ -1,5 +1,10 @@
 package model;
 
-public class Board {
+public class Board extends Matrix{
 
+	public Board(int rows, int columns) {
+		super(rows, columns);
+		
+	}
+	
 }
