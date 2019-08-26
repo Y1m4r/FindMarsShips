@@ -17,6 +17,7 @@ import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.AnchorPane;
 import javafx.scene.layout.GridPane;
+import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import model.Board;
@@ -139,8 +140,51 @@ public class MakeMatrixController {
 			alert.showAndWait();
 		}
     	
+    	try {
+				board.multiply(board.getBattleBoard(), board.getBattleBoard2());
+				int[][] result = board.getBattleBoardFinal();
+
+				GridPane gridX = new GridPane();
+				gridX.setGridLinesVisible(true);
+				grid3 = gridX;
+
+				for (int i = 0; i < result.length; i++) {
+					for (int j = 0; j < result[0].length; j++) {
+
+						grid3.addColumn(i);
+						grid3.addRow(j);
+
+						Label lx = new Label();
+
+						lx.setText(" " + result[i][j] + " ");
+						if (board.isPrimeNumber(result[i][j]))
+							lx.setTextFill(Color.DODGERBLUE);
+						grid3.add(lx, j, i);
+
+					}
+				}
+
+				sp3.setContent(grid3);
+			} catch (NumberFormatException n) {
+				Alert alert = new Alert(Alert.AlertType.WARNING);
+				alert.initStyle(StageStyle.UTILITY);
+				alert.setTitle("Information");
+				alert.setHeaderText("WARNING!");
+				alert.setContentText("Please proveide all of the information required");
+
+				alert.showAndWait();
+			} catch (NullPointerException e) {
+				Alert alert = new Alert(Alert.AlertType.WARNING);
+				alert.initStyle(StageStyle.UTILITY);
+				alert.setTitle("Information");
+				alert.setHeaderText("WARNING!");
+				alert.setContentText("Please proveide all of the information required");
+
+				alert.showAndWait();
+			}
+		}
     	
-    }
+   
     
     
     public void fillAndShowMatrix() {
