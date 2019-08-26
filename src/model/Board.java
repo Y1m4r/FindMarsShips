@@ -82,9 +82,28 @@ public class Board {
 		return repeated;
 	}
 	
-	public boolean isPrimeNumber(int x) {
-		
-		return false;
+    static long c[] = new long[100]; 
+  
+    static void coef(int n) 
+    { 
+        c[0] = 1; 
+        for (int i = 0; i < n; c[0] = -c[0], i++) { 
+            c[1 + i] = 1; 
+  
+            for (int j = i; j > 0; j--) 
+                c[j] = c[j - 1] - c[j]; 
+        } 
+    } 
+	public boolean isPrimeNumber(int x) { 
+        coef(x); 
+  
+        c[0]++; 
+        c[x]--; 
+  
+        int i = x; 
+        while ((i--) > 0 && c[i] % x == 0); 
+        
+        return i < 0; 
 	}
 	
 	public int[][] multiply(int[][] A, int[][] B){
