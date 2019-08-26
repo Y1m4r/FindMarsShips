@@ -184,7 +184,6 @@ public class MakeMatrixController {
 
 			}
 		}
-		
 		sp1.setContent(grid1);
 		sp2.setContent(grid2);
 
