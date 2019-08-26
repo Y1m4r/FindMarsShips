@@ -24,8 +24,62 @@ public class Board {
 		return battleBoardFinal;
 	}
 	
-	public void generateMatrixRandom(double row, double column, double row2, double column2, boolean isEnemy) {
-		
+	public void generateMatrixRandom(int row, int column, int row2, int column2, boolean isEnemy) {
+		battleBoard = new int[row][column];
+		battleBoard2 = new int[row2][column2];
+		battleBoardFinal = new int[row][column2];
+		int x = 0;
+
+		if(isEnemy == false) {
+			for(int i = 0; i<row; i++) {
+				for(int j = 0; j<column; j++) {
+					x =(int) (Math.random() * 150) + 1; 
+					while(isRepeated(x, battleBoard)) {
+						x =(int) (Math.random() * 150) + 1; 
+					}
+					battleBoard[i][j] = x;	
+				}
+			}
+			for(int i = 0; i<row2; i++) {
+				for(int j = 0; j<column2; j++) {
+					x = (int) (Math.random() * 150) + 1;
+					while(isRepeated(x, battleBoard)) {
+						x =(int) (Math.random() * 150) + 1; 
+					}
+					battleBoard2[i][j] = x;		
+				}
+			}
+		}
+		for(int i = 0; i<row; i++) {
+			for(int j = 0; j<column; j++) {
+				x =(int) (Math.random() * 150) + 1;
+				battleBoard[i][j] = x;	
+			}
+		}
+
+		for(int i = 0; i<row2; i++) {
+			for(int j = 0; j<column2; j++) {
+				x =(int) (Math.random() * 150) + 1;  
+				battleBoard2[i][j] = x;
+			}
+		}
+	}
+	
+	public boolean isRepeated(int x, int[][] a) {
+		boolean repeated = false;
+
+		int n = a.length;
+		int m = a[0].length;
+
+		for(int i = 0; i < n && !repeated; i++) {
+			for(int j = 0; j < m && !repeated; j++) {
+				if(a[i][j] == x) {
+					repeated = true;
+				}
+			}
+		}
+
+		return repeated;
 	}
 	
 	public boolean isPrimeNumber(int x) {
