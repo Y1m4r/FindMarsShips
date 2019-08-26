@@ -24,13 +24,13 @@ public class Board {
 		return battleBoardFinal;
 	}
 	
-	public void generateMatrixRandom(int row, int column, int row2, int column2, boolean isEnemy) {
+	public void generateMatrixRandom(int row, int column, int row2, int column2, boolean repeated) {
 		battleBoard = new int[row][column];
 		battleBoard2 = new int[row2][column2];
 		battleBoardFinal = new int[row][column2];
 		int x = 0;
 
-		if(isEnemy == false) {
+		if(repeated == false) {
 			for(int i = 0; i<row; i++) {
 				for(int j = 0; j<column; j++) {
 					x =(int) (Math.random() * 150) + 1; 
