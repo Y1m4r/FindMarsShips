@@ -2,7 +2,6 @@ package ui;
 
 import java.io.IOException;
 import java.util.Optional;
-
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
@@ -66,9 +65,7 @@ public class MakeMatrixController {
     
     @FXML
 	public void initialize() {
-
-		board = new Board();
-		
+  
 		grid1 = new GridPane();
 		grid2 = new GridPane();
 		grid3 = new GridPane();
@@ -76,8 +73,11 @@ public class MakeMatrixController {
 		grid1.setGridLinesVisible(true);
 		grid2.setGridLinesVisible(true);
 		grid3.setGridLinesVisible(true);
+		
+		board = new Board();
 
 	}
+    
     
     @FXML
     void backToMenu(ActionEvent event) throws IOException {
@@ -101,7 +101,7 @@ public class MakeMatrixController {
 		stage.setScene(scene);
 		stage.show();
 		
-    //	cleanResult();
+    	cleanResult();
     	try {
 
 			int rows1 = Integer.parseInt(filasTF1.getText());
