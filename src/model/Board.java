@@ -5,8 +5,6 @@ public class Board {
 	private int battleBoard[][];
 	private int battleBoard2[][];
 	private int battleBoardFinal[][];
-	
-	
 
 	public Board() {
 		
