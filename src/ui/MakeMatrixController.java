@@ -77,10 +77,6 @@ public class MakeMatrixController {
 		grid3.setGridLinesVisible(true);
 
 	}
-   
-    
-    
-    
     
     @FXML
     void backToMenu(ActionEvent event) throws IOException {
@@ -188,7 +184,7 @@ public class MakeMatrixController {
 
 			}
 		}
-
+		
 		sp1.setContent(grid1);
 		sp2.setContent(grid2);
 
