@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+/* Puedes añadir aquí estilos base personalizados globales si lo necesitas,
+   por ejemplo, estilos para `body` como hicimos antes, aunque
+   aplicarlos con clases de Tailwind en tu componente App/Layout
+   suele ser más idiomático */
+body {
+ /* @apply bg-space-dark text-space-light font-sans; /* Ejemplo de aplicar estilos base con Tailwind */
+}
