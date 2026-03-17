@@ -6,12 +6,19 @@ import { isPrime } from '../utils';
 const MatrixDisplay = ({
   matrix,
   title,
-  gamePhaseForC = null, // Pasar la fase actual ('finding', 'results', etc.) SOLO para Matriz C
-  revealedStatus = null, //  Objeto {'r-c': boolean} para saber si C[r][c] se reveló
-  cellValidationStatus = null, //  Renombrado de cellStatus -> {'r-c': 'validated' | 'failed' | 'pending' ?}
-  onRevealCell = null, //  Callback al clickear interferencia
-  onValidateCell = null, //  Callback al clickear número revelado para validar
-  readOnly = true, // Determina si se puede interactuar
+  gamePhaseForC = null,
+  cellValidationStatus = null,
+  onCellClick = null,        // clic izquierdo
+  onCellRightClick = null,   // clic derecho
+  markedCells = null,        // {'r-c': true}
+  readOnly = true,
+  highlightRow = null,
+  highlightCol = null,
+  onCellHover = null,
+  onCellHoverLeave = null,
+  tooltipContent = null,
+  hoveredCell = null,
+  teachingRevealedCells = null,
 }) => {
 
   // Si no hay matriz o está vacía, mostrar placeholder
@@ -30,46 +37,29 @@ const MatrixDisplay = ({
 
   const getCellStyle = (rowIndex, colIndex, cellValue) => {
     const key = `${rowIndex}-${colIndex}`;
-    const isRevealed = revealedStatus ? revealedStatus[key] : false;
     const validationStatus = cellValidationStatus ? cellValidationStatus[key] : null; // 'validated', 'failed'
     let baseStyle = ` p-1 sm:p-2 min-h-[30px] min-w-[30px] sm:min-h-[40px] sm:min-w-[40px]
       flex items-center justify-center
       border border-cyan-800/50 rounded-sm
-      font-['VT323'] text-sm transition-all duration-150 `;
+      font-['VT323'] text-base transition-all duration-150 `;
     let specificStyle = 'bg-gray-700/50 text-gray-500 animate-pulse';
     let hoverStyle = 'hover:bg-gray-600/70 hover:text-gray-300';
     let cursorStyle = 'cursor-default';
     let opacityStyle = '';
 
+    const isMarked = markedCells ? markedCells[key] : false;
+
      // Es Matriz C durante la fase de búsqueda?
     if (gamePhaseForC === 'finding') {
-        if (!isRevealed) { // No revelado aún (mostrar con opacidad)
-            specificStyle = 'bg-slate-600 text-gray-400'; // Fondo oscuro, texto tenue
-            opacityStyle = 'opacity-60'; // Aplicar opacidad
-            if (!readOnly) {
-                hoverStyle = 'hover:opacity-100 hover:bg-slate-500'; // Hover revela un poco más
-                cursorStyle = 'cursor-pointer'; // Indicar que se puede clickear para revelar
-            }
-        } else { // Revelado, ahora se puede validar
-            const valueIsPrime = typeof cellValue === 'number' && isPrime(cellValue);
-            // Mostrar estado de validación si existe
-            if (validationStatus === 'validated') {
-                specificStyle = 'bg-teal-500 text-white font-bold ring-2 ring-teal-300';
-            } else if (validationStatus === 'failed') {
-                specificStyle = 'bg-orange-600 text-white font-bold ring-2 ring-orange-400';
-            } else { // Aún no validado
-                if (valueIsPrime) {
-                    specificStyle = 'bg-cyan-700 text-white font-bold'; // Es primo, esperando validación
-                    if (!readOnly) {
-                        hoverStyle = 'hover:ring-2 hover:ring-yellow-400'; // Indicar que se puede validar
-                        cursorStyle = 'cursor-pointer'; // Click para validar
-                    }
-                } else {
-                    specificStyle = 'bg-cyan-700 text-white font-bold'; // No es primo, no se puede validar
-                }
-            }
+        specificStyle = 'bg-cyan-700 text-white font-bold';
+        if (isMarked) {
+            specificStyle += ' ring-2 ring-accent-yellow';
         }
-    } else if (gamePhaseForC === 'results') { // Fase de resultados, todo visible, mostrar validación
+        if (!readOnly) {
+            hoverStyle = 'hover:ring-2 hover:ring-yellow-400';
+            cursorStyle = 'cursor-pointer';
+        }
+    } else if (gamePhaseForC === 'results') {
         const valueIsPrime = typeof cellValue === 'number' && isPrime(cellValue);
         if (validationStatus === 'validated') {
             specificStyle = 'bg-teal-500 text-white font-bold';
@@ -86,26 +76,37 @@ const MatrixDisplay = ({
     }
 
 
+    // Highlight for teaching mode (row in A, col in B)
+    if (highlightRow !== null && highlightRow !== undefined && rowIndex === highlightRow) {
+      specificStyle += ' ring-2 ring-venus-blue bg-blue-900/50';
+    }
+    if (highlightCol !== null && highlightCol !== undefined && colIndex === highlightCol) {
+      specificStyle += ' ring-2 ring-mars-red bg-red-900/50';
+    }
+
+    // Teaching mode: show revealed cells with distinct style
+    if (teachingRevealedCells) {
+      const tKey = `${rowIndex}-${colIndex}`;
+      if (teachingRevealedCells[tKey]) {
+        specificStyle = 'bg-teal-800 text-white font-bold';
+      } else {
+        specificStyle = 'bg-slate-600 text-gray-500';
+        opacityStyle = 'opacity-40';
+      }
+    }
+
     return `${baseStyle} ${specificStyle} ${opacityStyle} ${hoverStyle} ${cursorStyle}`;
   };
 
-const handleCellClick = (rowIndex, colIndex) => {
-  if (readOnly || gamePhaseForC !== 'finding') return; // Solo interactivo en 'finding'
+const handleCellLeftClick = (rowIndex, colIndex) => {
+  if (readOnly || gamePhaseForC !== 'finding') return;
+  if (onCellClick) onCellClick(rowIndex, colIndex);
+};
 
-    const key = `${rowIndex}-${colIndex}`;
-    const isRevealed = revealedStatus ? revealedStatus[key] : false;
-
-    if (!isRevealed && onRevealCell) {
-      // Click en celda con opacidad -> Revelar
-      onRevealCell(rowIndex, colIndex);
-    } else if (isRevealed && onValidateCell) {
-      // Click en número revelado -> Intentar Validar (Simon Says)
-       const currentValidationStatus = cellValidationStatus ? cellValidationStatus[key] : null;
-       // Permitir validar solo si no está ya 'validated' o 'failed'
-       if (currentValidationStatus !== 'validated' && currentValidationStatus !== 'failed') {
-          onValidateCell(rowIndex, colIndex, matrix[rowIndex][colIndex]);
-       }
-    }
+const handleCellContextMenu = (e, rowIndex, colIndex) => {
+  e.preventDefault();
+  if (readOnly || gamePhaseForC !== 'finding') return;
+  if (onCellRightClick) onCellRightClick(rowIndex, colIndex, matrix[rowIndex][colIndex]);
 };
 
 return (
@@ -120,59 +121,55 @@ return (
         {matrix.map((row, i) =>
           row.map((cell, j) => {
             const key = `${i}-${j}`;
-            const isRevealed = revealedStatus ? revealedStatus[key] : false;
-            const validationStatus = cellValidationStatus ? cellValidationStatus[key] : null;
-             // Mostrar siempre el número, el estilo se encarga de la opacidad/apariencia
             const cellContent = cell;
             return (
               <div
                 key={key}
-                className={getCellStyle(i, j, cell)}
+                className={`${getCellStyle(i, j, cell)} relative`}
                 title={
                   (() => {
-                    const key = `${i}-${j}`;
-                    const isRevealed = revealedStatus ? revealedStatus[key] : false;
-                    const validationStatus = cellValidationStatus ? cellValidationStatus[key] : null;
-                    const cellValue = cell; // Usamos 'cell' directamente
+                    const tKey = `${i}-${j}`;
+                    const validationSt = cellValidationStatus ? cellValidationStatus[tKey] : null;
+                    const isCellMarked = markedCells ? markedCells[tKey] : false;
+                    const cellValue = cell;
 
-                    if (gamePhaseForC === 'finding' && !isRevealed && !readOnly) {
-                        return 'Click para revelar celda';
-                    } else if (gamePhaseForC === 'finding' && isRevealed && !readOnly) {
-                        if (validationStatus === 'validated') {
-                            return `Validado: ${cellValue} (Correcto!)`;
-                        } else if (validationStatus === 'failed') {
-                            return `Validación Fallida: ${cellValue}`;
+                    if (gamePhaseForC === 'finding' && !readOnly) {
+                        if (isCellMarked) {
+                            return 'Izq: desmarcar — Der: Simon Says';
                         } else {
-                            // Aún no se intentó validar, indicar si es primo o no
-                            if (typeof cellValue === 'number' && isPrime(cellValue)) {
-                                return `Click para validar ${cellValue} (Posible Primo)`;
-                            } else {
-                                // No es primo, pero aún así podrías permitir el clic (aunque fallará Simon)
-                                // O podrías deshabilitar la opción de validar aquí visualmente
-                                return `Click para validar ${cellValue} (No Primo)`;
-                            }
+                            return 'Izq: marcar — Der: Simon Says';
                         }
                     } else if (gamePhaseForC === 'results') {
-                         // En resultados, mostrar estado final
-                         if (validationStatus === 'validated') return `Validado: ${cellValue}`;
-                         if (validationStatus === 'failed') return `Fallido: ${cellValue}`;
+                         if (validationSt === 'validated') return `Validado: ${cellValue}`;
+                         if (validationSt === 'failed') return `Fallido: ${cellValue}`;
                          if (typeof cellValue === 'number' && isPrime(cellValue)) return `Primo no validado: ${cellValue}`;
-                         return `(${i}, ${j}) = ${cellValue}`; // Celda normal en resultados
+                         return `(${i}, ${j}) = ${cellValue}`;
                     } else {
-                        // Fase normal (briefing, ready_to_calc, calculating) o matrices A/B
                         return `(${i}, ${j}) = ${cellValue}`;
                     }
                 })()
                 }
-                onClick={() => handleCellClick(i, j)}
+                onClick={() => handleCellLeftClick(i, j)}
+                onContextMenu={(e) => handleCellContextMenu(e, i, j)}
+                onMouseEnter={() => onCellHover && onCellHover(i, j)}
+                onMouseLeave={() => onCellHoverLeave && onCellHoverLeave()}
               >
                 {cellContent}
+                {/* Tooltip for formula */}
+                {hoveredCell && hoveredCell.row === i && hoveredCell.col === j && tooltipContent && (
+                  <div className="absolute z-30 bottom-full left-1/2 -translate-x-1/2 mb-1 pointer-events-none">
+                    <div className="bg-slate-900 border border-console-blue text-console-blue
+                      font-['VT323'] text-sm p-2 rounded shadow-lg whitespace-nowrap max-w-[90vw]">
+                      {tooltipContent}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })
         )}
       </div>
-       <p className="text-xs text-gray-400 mt-2 text-center">Dims: {rows}x{cols}</p>
+       <p className="text-sm text-gray-400 mt-2 text-center">Dims: {rows}x{cols}</p>
     </div>
   );
 };

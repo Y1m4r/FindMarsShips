@@ -1,35 +1,34 @@
 // src/App.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import WelcomeScreen from './components/WelcomeScreen';
 import GameScreen from './components/GameScreen';
 import HallOfFameScreen from './components/HallOfFameScreen';
+import CinematicIntro from './components/CinematicIntro';
 import { LEVELS } from './constants';
-import { saveScoreToHallOfFame, getHallOfFame } from './utils'; // Importa getHallOfFame si quieres precargar
+import { saveScoreToHallOfFame } from './utils';
 
 function App() {
   const [currentScreen, setCurrentScreen] = useState('welcome'); // welcome, game, hallOfFame
   const [playerName, setPlayerName] = useState('');
   const [currentLevelIndex, setCurrentLevelIndex] = useState(0);
   const [totalScore, setTotalScore] = useState(0);
-  // Estado para el nivel máximo desbloqueado (opcional, para futura lógica de selección de nivel)
-  const [maxUnlockedLevel, setMaxUnlockedLevel] = useState(0);
-
-  // Cargar estado inicial si es necesario (ej. jugador previo, nivel desbloqueado)
-  // useEffect(() => {
-  //   const savedPlayer = localStorage.getItem('spaceWarPlayer');
-  //   if (savedPlayer) setPlayerName(savedPlayer);
-  //   // Cargar maxUnlockedLevel de localStorage si se guarda
-  // }, []);
-
 
   const handleStartGame = (name) => {
     console.log("Starting game for:", name);
     setPlayerName(name);
     setCurrentLevelIndex(0);
     setTotalScore(0);
-    setMaxUnlockedLevel(0); // Empieza desde el nivel 1 (índice 0)
+
+    const skipCinematic =
+      localStorage.getItem('cinematicSeen') ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    setCurrentScreen(skipCinematic ? 'game' : 'cinematic');
+  };
+
+  const handleCinematicComplete = () => {
+    localStorage.setItem('cinematicSeen', 'true');
     setCurrentScreen('game');
-    // localStorage.setItem('spaceWarPlayer', name); // Guardar nombre si se desea persistencia
   };
 
   const handleLevelComplete = (levelPoints) => {
@@ -40,7 +39,6 @@ function App() {
     const nextLevelIndex = currentLevelIndex + 1;
     if (nextLevelIndex < LEVELS.length) {
       setCurrentLevelIndex(nextLevelIndex);
-      setMaxUnlockedLevel(prev => Math.max(prev, nextLevelIndex)); // Actualizar nivel desbloqueado
       // No cambiar de pantalla aquí, GameScreen se actualizará con el nuevo index
     } else {
       // Si era el último nivel, la lógica de guardado se maneja en onGameEnd
@@ -89,6 +87,8 @@ function App() {
            setCurrentScreen('welcome');
            return <WelcomeScreen onStartGame={handleStartGame} />; // Muestra welcome mientras corrige
         }
+      case 'cinematic':
+        return <CinematicIntro playerName={playerName} onComplete={handleCinematicComplete} />;
       case 'hallOfFame':
         return <HallOfFameScreen onPlayAgain={handlePlayAgain} />;
       case 'welcome':

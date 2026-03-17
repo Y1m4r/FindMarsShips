@@ -1,19 +1,19 @@
 /* eslint-disable react/prop-types */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import MatrixDisplay from './MatrixDisplay'; // Asegúrate que la ruta es correcta
-import SimonSays from './SimonSays';       // Asegúrate que la ruta es correcta
-import { generateRandomMatrix, multiplyMatricesNaive, multiplyMatricesStrassen, isPrime } from '../utils'; // Asegúrate que la ruta es correcta
+import MatrixDisplay from './MatrixDisplay';
+import SimonSays from './SimonSays';
+import MissionBriefing from './MissionBriefing';
+import TeachingOverlay from './TeachingOverlay';
+import StrassenPanel from './StrassenPanel';
+import { generateRandomMatrix, multiplyMatricesNaive, multiplyMatricesStrassen, isPrime, computeStrassenBreakdown } from '../utils';
 import {
   LEVELS,
   FINDING_TIME_SECONDS,
-  POINTS_PER_CORRECT_VALIDATION,
-  POINTS_PENALTY_PER_FAILED_VALIDATION,
-  POINTS_PENALTY_FOR_WRONG_VALIDATION_ATTEMPT,
   TIME_BONUS_MULTIPLIER,
   SIMON_SAYS_SEQUENCE_LENGTH_BASE,
   POINTS_PER_REVEALED_PRIME,
   POINTS_PENALTY_PER_REVEALED_NON_PRIME
-} from '../constants'; // Asegúrate que la ruta es correcta
+} from '../constants';
 
 // --- Iconos (puedes moverlos a un archivo separado si prefieres) ---
 const CpuIcon = () => (
@@ -40,18 +40,81 @@ const GameScreen = ({ playerName, currentLevelIndex, totalScore, onLevelComplete
   const [calcTime, setCalcTime] = useState(null);
   const [timer, setTimer] = useState(FINDING_TIME_SECONDS);
   const [findingScore, setFindingScore] = useState(0); // Puntos solo de la fase 'finding' (Simon + Revelación)
-  const [revealedCellsC, setRevealedCellsC] = useState({}); // {'r-c': true}
   const [cellValidationStatus, setCellValidationStatus] = useState({}); // {'r-c': 'validated' | 'failed'}
   const [showSimonSays, setShowSimonSays] = useState(false);
   const [simonSaysTarget, setSimonSaysTarget] = useState(null);
   const [timeBonus, setTimeBonus] = useState(0);
+  const [simonSaysUsed, setSimonSaysUsed] = useState(0);
+  const [simonEvaluatedCells, setSimonEvaluatedCells] = useState({});
+  const [markedCells, setMarkedCells] = useState({});
+  const [dynamicMinScore, setDynamicMinScore] = useState(0);
+  const [primesInMatrix, setPrimesInMatrix] = useState(0);
+
+  // --- Feature 3: Briefing ---
+  const briefingShownRef = useRef({});
+
+  // --- Feature 2: Tooltip ---
+  const [hoveredCellC, setHoveredCellC] = useState(null);
+  const [tooltipFormula, setTooltipFormula] = useState('');
+
+  // --- Feature 1: Teaching ---
+  const [teachingStepIndex, setTeachingStepIndex] = useState(0);
+  const [teachingAutoPlay, setTeachingAutoPlay] = useState(false);
+  const [teachingComputedC, setTeachingComputedC] = useState(null);
+  const [teachingHighlight, setTeachingHighlight] = useState({ row: null, col: null });
+  const teachingStepsRef = useRef([]);
+  const teachingIntervalRef = useRef(null);
+
+  // --- Feature 4: Strassen Panel ---
+  const [strassenPanelOpen, setStrassenPanelOpen] = useState(false);
+  const [strassenBreakdown, setStrassenBreakdown] = useState(null);
 
   const timerIntervalRef = useRef(null); // Ref para el intervalo del timer
+
+  // --- Bug 1: Refs espejo para estabilizar hooks ---
+  const timerRef = useRef(timer);
+  const cellValidationStatusRef = useRef(cellValidationStatus);
+  const showSimonSaysRef = useRef(showSimonSays);
+  const matrixCRef = useRef(matrixC);
+  const simonSaysTargetRef = useRef(simonSaysTarget);
+  const gamePhaseRef = useRef(gamePhase);
+  const simonEvaluatedCellsRef = useRef(simonEvaluatedCells);
+  const markedCellsRef = useRef(markedCells);
+  const endFindingPhaseRef = useRef(null);
+
+  // --- Sincronizar refs con estado ---
+  useEffect(() => { timerRef.current = timer; }, [timer]);
+  useEffect(() => { cellValidationStatusRef.current = cellValidationStatus; }, [cellValidationStatus]);
+  useEffect(() => { showSimonSaysRef.current = showSimonSays; }, [showSimonSays]);
+  useEffect(() => { matrixCRef.current = matrixC; }, [matrixC]);
+  useEffect(() => { simonSaysTargetRef.current = simonSaysTarget; }, [simonSaysTarget]);
+  useEffect(() => { gamePhaseRef.current = gamePhase; }, [gamePhase]);
+  useEffect(() => { simonEvaluatedCellsRef.current = simonEvaluatedCells; }, [simonEvaluatedCells]);
+  useEffect(() => { markedCellsRef.current = markedCells; }, [markedCells]);
+
+  // --- Helper: calcular minScore dinámico basado en primos reales ---
+  const computeDynamicMinScore = useCallback((matrix) => {
+    if (!matrix) return 0;
+    let primeCount = 0;
+    matrix.forEach(row => row.forEach(val => { if (isPrime(val)) primeCount++; }));
+    setPrimesInMatrix(primeCount);
+    // Requiere encontrar ~40% de los primos (redondeado arriba), mínimo 1
+    const minScore = Math.max(1, Math.ceil(primeCount * POINTS_PER_REVEALED_PRIME * 0.4));
+    setDynamicMinScore(minScore);
+    console.log(`Primes in matrix: ${primeCount}, dynamic minScore: ${minScore}`);
+    return minScore;
+  }, []);
 
   // --- Configuración del Nivel ---
   const setupLevel = useCallback(() => {
     console.log(`Setting up Level ${currentLevel.id}`);
-    setGamePhase('ready_to_calc'); // <<<--- Ir directo a ready_to_calc
+
+    // Feature 3: Mostrar briefing si no se ha visto en este nivel
+    if (!briefingShownRef.current[currentLevel.id]) {
+      setGamePhase('briefing');
+    } else {
+      setGamePhase('ready_to_calc');
+    }
 
     // Generar matrices A y B
     const newA = generateRandomMatrix(currentLevel.rowsA, currentLevel.colsA);
@@ -64,12 +127,33 @@ const GameScreen = ({ playerName, currentLevelIndex, totalScore, onLevelComplete
     setCalculationDone(false);
     setCalcTime(null);
     setFindingScore(0);
-    setRevealedCellsC({});
     setCellValidationStatus({});
     setTimeBonus(0);
+    setDynamicMinScore(0);
+    setPrimesInMatrix(0);
     setShowSimonSays(false);
     setSimonSaysTarget(null);
-    setTimer(FINDING_TIME_SECONDS); // Resetear timer
+    setTimer(FINDING_TIME_SECONDS);
+    setSimonSaysUsed(0);
+    setSimonEvaluatedCells({});
+    setMarkedCells({});
+
+    // Resetear teaching
+    setTeachingStepIndex(0);
+    setTeachingAutoPlay(false);
+    setTeachingComputedC(null);
+    setTeachingHighlight({ row: null, col: null });
+    teachingStepsRef.current = [];
+    if (teachingIntervalRef.current) {
+      clearInterval(teachingIntervalRef.current);
+      teachingIntervalRef.current = null;
+    }
+
+    // Resetear tooltip y Strassen panel
+    setHoveredCellC(null);
+    setTooltipFormula('');
+    setStrassenPanelOpen(false);
+    setStrassenBreakdown(null);
 
     // Limpiar intervalo si existe de nivel anterior
     if (timerIntervalRef.current) {
@@ -113,13 +197,162 @@ const GameScreen = ({ playerName, currentLevelIndex, totalScore, onLevelComplete
       if (result && !errorOccurred) {
         setMatrixC(result);
         setCalculationDone(true);
-        setGamePhase('finding'); // Pasar a la fase de búsqueda
-        // El timer se iniciará por el useEffect que depende de gamePhase
+        computeDynamicMinScore(result);
+        setGamePhase('finding'); // PRIMERO, antes del breakdown
+        // Strassen breakdown es informativo, no bloquea el juego
+        try {
+          if (currentLevel.algorithm === 'strassen' && matrixA && matrixB) {
+            setStrassenBreakdown(computeStrassenBreakdown(matrixA, matrixB));
+          }
+        } catch (breakdownError) {
+          console.error("Error computing Strassen breakdown:", breakdownError);
+        }
       } else {
         // Si hubo error o resultado nulo, volver a 'ready_to_calc'
         setGamePhase('ready_to_calc');
       }
     }, 50); // Delay corto para UI
+  };
+
+  // --- Feature 3: Briefing handler ---
+  const handleDismissBriefing = () => {
+    briefingShownRef.current = { ...briefingShownRef.current, [currentLevel.id]: true };
+    setGamePhase('ready_to_calc');
+  };
+
+  // --- Feature 2: Tooltip handlers ---
+  const computeFormulaForCell = (row, col) => {
+    if (!matrixA || !matrixB) return '';
+    const rowA = matrixA[row];
+    const colB = matrixB.map(r => r[col]);
+    const terms = rowA.map((val, k) => `${val}×${colB[k]}`).join(' + ');
+    const sum = rowA.reduce((acc, val, k) => acc + val * colB[k], 0);
+    return `C[${row}][${col}] = ${terms} = ${sum}`;
+  };
+
+  const handleCellHoverC = (row, col) => {
+    if (gamePhase !== 'finding' || !matrixA || !matrixB) return;
+    setHoveredCellC({ row, col });
+    setTooltipFormula(computeFormulaForCell(row, col));
+  };
+
+  const handleCellHoverLeave = () => {
+    setHoveredCellC(null);
+    setTooltipFormula('');
+  };
+
+  // --- Feature 1: Teaching handlers ---
+  const handleStartTeaching = () => {
+    if (gamePhase !== 'ready_to_calc' || !matrixA || !matrixB) return;
+
+    // Compute C immediately
+    const multiplyFn = currentLevel.algorithm === 'strassen' ? multiplyMatricesStrassen : multiplyMatricesNaive;
+    const result = multiplyFn(matrixA, matrixB);
+    if (!result) {
+      alert('Error al calcular la matriz.');
+      return;
+    }
+    setMatrixC(result);
+    setCalculationDone(true);
+    computeDynamicMinScore(result);
+
+    // Build teaching steps
+    const rowsC = result.length;
+    const colsC = result[0].length;
+    const colsA = matrixA[0].length;
+    const steps = [];
+    for (let i = 0; i < rowsC; i++) {
+      for (let j = 0; j < colsC; j++) {
+        steps.push({ type: 'cell_start', row: i, col: j });
+        for (let k = 0; k < colsA; k++) {
+          steps.push({ type: 'term', row: i, col: j, k });
+        }
+        steps.push({ type: 'cell_done', row: i, col: j, value: result[i][j] });
+      }
+    }
+    teachingStepsRef.current = steps;
+    setTeachingStepIndex(0);
+    setTeachingComputedC(
+      Array(rowsC).fill(null).map(() => Array(colsC).fill(null))
+    );
+    // Apply first step immediately
+    if (steps.length > 0 && steps[0].type === 'cell_start') {
+      setTeachingHighlight({ row: steps[0].row, col: steps[0].col });
+    } else {
+      setTeachingHighlight({ row: null, col: null });
+    }
+    setGamePhase('teaching');
+  };
+
+  const applyTeachingStep = useCallback((idx) => {
+    const steps = teachingStepsRef.current;
+    if (idx >= steps.length) return;
+    const step = steps[idx];
+
+    if (step.type === 'cell_start') {
+      setTeachingHighlight({ row: step.row, col: step.col });
+    } else if (step.type === 'term') {
+      setTeachingHighlight({ row: step.row, col: step.col });
+    } else if (step.type === 'cell_done') {
+      setTeachingComputedC(prev => {
+        if (!prev) return prev;
+        const copy = prev.map(r => [...r]);
+        copy[step.row][step.col] = step.value;
+        return copy;
+      });
+      setTeachingHighlight({ row: null, col: null });
+    }
+  }, []);
+
+  const handleTeachingNext = useCallback(() => {
+    setTeachingStepIndex(prev => {
+      const next = prev + 1;
+      if (next < teachingStepsRef.current.length) {
+        applyTeachingStep(next);
+      }
+      return Math.min(next, teachingStepsRef.current.length);
+    });
+  }, [applyTeachingStep]);
+
+  const handleTeachingToggleAuto = () => {
+    setTeachingAutoPlay(prev => !prev);
+  };
+
+  const handleTeachingSkipToEnd = () => {
+    setTeachingAutoPlay(false);
+    if (teachingIntervalRef.current) {
+      clearInterval(teachingIntervalRef.current);
+      teachingIntervalRef.current = null;
+    }
+    // Reveal all cells
+    if (matrixC) {
+      const revealed = {};
+      const fullC = matrixC.map((row, i) =>
+        row.map((val, j) => {
+          revealed[`${i}-${j}`] = true;
+          return val;
+        })
+      );
+      setTeachingComputedC(fullC);
+    }
+    setTeachingHighlight({ row: null, col: null });
+    setTeachingStepIndex(teachingStepsRef.current.length);
+  };
+
+  const handleTeachingContinue = () => {
+    setTeachingAutoPlay(false);
+    if (teachingIntervalRef.current) {
+      clearInterval(teachingIntervalRef.current);
+      teachingIntervalRef.current = null;
+    }
+    setTeachingHighlight({ row: null, col: null });
+
+    // Compute Strassen breakdown if applicable
+    if (currentLevel.algorithm === 'strassen' && matrixA && matrixB) {
+      setStrassenBreakdown(computeStrassenBreakdown(matrixA, matrixB));
+    }
+
+    setGamePhase('finding');
   };
 
   // --- Funciones Simon Says ---
@@ -129,161 +362,126 @@ const GameScreen = ({ playerName, currentLevelIndex, totalScore, onLevelComplete
     if (!simonSaysTarget) return;
     const { rowIndex, colIndex, value } = simonSaysTarget;
     const key = `${rowIndex}-${colIndex}`;
-    const wasPrime = isPrime(value); // Verificar si el NÚMERO ORIGINAL era primo
-
-    let scoreChange = 0;
-    let newStatus = '';
-
-    if (wasPrime) {
-      scoreChange = POINTS_PER_CORRECT_VALIDATION; // Puntos por validar un primo
-      newStatus = 'validated';
-      console.log(`Correctly validated prime ${value} at ${key}. Score +${scoreChange}`);
-    } else {
-      // Pasó Simon, pero validó un NO-primo
-      scoreChange = POINTS_PENALTY_FOR_WRONG_VALIDATION_ATTEMPT; // Penalización
-      newStatus = 'failed'; // Falló la validación (aunque pasó Simon)
-      console.log(`Incorrectly validated non-prime ${value} at ${key}. Score ${scoreChange}`);
-    }
-
-    setFindingScore(prev => prev + scoreChange);
-    setCellValidationStatus(prev => ({ ...prev, [key]: newStatus }));
+    const wasPrime = isPrime(value);
+    console.log(`Simon Says completed for cell ${key} (value ${value}, prime: ${wasPrime}). No score change.`);
     setShowSimonSays(false);
     setSimonSaysTarget(null);
-    // Vuelve automáticamente a 'finding' visualmente al ocultar el modal
   };
 
-  // Usar useCallback aquí porque es dependencia de endFindingPhase
+  // Usar useCallback con refs para identidad estable
   const handleSimonFailure = useCallback(() => {
     console.log("Simon Says Failure.");
-    if (!simonSaysTarget) return;
-    const { rowIndex, colIndex, value } = simonSaysTarget; // Obtener el valor original
+    const target = simonSaysTargetRef.current;
+    if (!target) return;
+    const { rowIndex, colIndex, value } = target;
     const key = `${rowIndex}-${colIndex}`;
-
-    let scoreChange = POINTS_PENALTY_PER_FAILED_VALIDATION; // Penalización estándar por fallar Simon
-    let newStatus = 'failed'; // Siempre es 'failed' si falla Simon
-
-    console.log(`Failed Simon Says for cell ${key} (value ${value}). Score ${scoreChange}`);
-
-    setFindingScore(prev => prev + scoreChange);
-    setCellValidationStatus(prev => ({ ...prev, [key]: newStatus }));
+    console.log(`Failed Simon Says for cell ${key} (value ${value}). No score change.`);
     setShowSimonSays(false);
     setSimonSaysTarget(null);
-    // Vuelve automáticamente a 'finding' visualmente al ocultar el modal
-  }, [simonSaysTarget]); // Dependencia de simonSaysTarget
+  }, []); // Dependencias vacías — lee de simonSaysTargetRef
 
   // --- Fase Finding ---
   // (No necesitamos startFindingTimer explícito, el useEffect se encarga)
 
-  const handleRevealCellC = (rowIndex, colIndex) => {
-    if (gamePhase !== 'finding') return;
-    const key = `${rowIndex}-${colIndex}`;
-    // Solo revelar si no está ya revelada
-    if (!revealedCellsC[key]) {
-       setRevealedCellsC(prev => ({ ...prev, [key]: true }));
-    }
-    // No se añade puntuación aquí
-  };
-
-  const handleValidateCell = (rowIndex, colIndex, cellValue) => {
-    // Solo se puede iniciar si estamos en 'finding' Y Simon no está activo
+  const handleCellLeftClick = (rowIndex, colIndex) => {
     if (gamePhase !== 'finding' || showSimonSays) return;
     const key = `${rowIndex}-${colIndex}`;
-    const currentValidationStatus = cellValidationStatus[key];
+    if (markedCells[key]) return; // Ya marcada — decisión irreversible
+    setMarkedCells(prev => ({ ...prev, [key]: true }));
+  };
 
-    // Permitir iniciar Simon si la celda está revelada Y NO tiene estado 'validated'/'failed'
-    if (revealedCellsC[key] && currentValidationStatus !== 'validated' && currentValidationStatus !== 'failed') {
-        console.log(`Attempting to validate cell value ${cellValue} at ${key} via Simon Says.`);
-        setSimonSaysTarget({ rowIndex, colIndex, value: cellValue }); // Guardar valor original
-        setShowSimonSays(true);
-        // No cambiamos gamePhase aquí, sigue siendo 'finding' de fondo
-    } else if (!revealedCellsC[key]) {
-         console.log(`Cell ${key} must be revealed first.`);
-    } else {
-        console.log(`Validation status for cell ${key} is already ${currentValidationStatus}`);
-    }
+  const handleCellRightClick = (rowIndex, colIndex, cellValue) => {
+    if (gamePhase !== 'finding' || showSimonSays) return;
+    const key = `${rowIndex}-${colIndex}`;
+    if (markedCells[key]) return;                                  // ya marcada — decisión tomada
+    if (simonEvaluatedCells[key]) return;                          // ya evaluada
+    if (simonSaysUsed >= currentLevel.simonSaysUses) return;       // sin usos
+
+    setSimonSaysUsed(prev => prev + 1);
+    setSimonEvaluatedCells(prev => ({ ...prev, [key]: true }));
+    setSimonSaysTarget({ rowIndex, colIndex, value: cellValue });
+    setShowSimonSays(true);
   };
 
   // --- Fin de Fase y Puntuación Final ---
   const endFindingPhase = useCallback(() => {
     // Evitar ejecuciones múltiples o si no estamos en finding
-    if (gamePhase !== 'finding') {
-        console.log("endFindingPhase called but phase is not 'finding'. Current phase:", gamePhase);
+    if (gamePhaseRef.current !== 'finding') {
+        console.log("endFindingPhase called but phase is not 'finding'. Current phase:", gamePhaseRef.current);
         return;
     }
     console.log("Ending finding phase. Calculating final scores for level.");
 
-    // 1. Limpiar Timer (por si se llama manualmente antes de que llegue a 0)
+    // 1. Limpiar Timer
     if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
         timerIntervalRef.current = null;
-        console.log("Timer interval cleared manually.");
     }
 
-    // 2. Manejar Simon Says Interrumpido
-    if (showSimonSays) {
+    // 2. Manejar Simon Says Interrumpido (leer de ref)
+    if (showSimonSaysRef.current) {
         console.log("Finding phase ended while Simon Says was active - counts as failure.");
-        // Llama a la lógica de fallo de Simon ANTES de calcular el resto
         handleSimonFailure();
     }
 
-    // 3. Calcular Time Bonus (basado en el tiempo *restante*)
-    // Usamos el estado 'timer' que se actualiza cada segundo
-    const calculatedTimeBonus = Math.floor(timer * TIME_BONUS_MULTIPLIER);
-    setTimeBonus(calculatedTimeBonus); // Guardar en estado
-    console.log(`Time bonus calculated: ${calculatedTimeBonus} (Timer: ${timer}s)`);
+    // 3. Calcular Time Bonus (leer de ref)
+    const currentTimer = timerRef.current;
+    const calculatedTimeBonus = Math.floor(currentTimer * TIME_BONUS_MULTIPLIER);
+    setTimeBonus(calculatedTimeBonus);
+    console.log(`Time bonus calculated: ${calculatedTimeBonus} (Timer: ${currentTimer}s)`);
 
-    // 4. Calcular Puntos por Revelación Simple y preparar estado final
+    // 4. Calcular Puntos por marcado (markedCells no evaluadas por Simon)
     let revealScore = 0;
-    const finalValidationStatus = { ...cellValidationStatus }; // Copia estado actual
-    const finalRevealedStatus = { ...revealedCellsC }; // Copia reveladas
+    const currentSimonEvaluated = simonEvaluatedCellsRef.current;
+    const currentMarked = markedCellsRef.current;
+    const currentMatrixC = matrixCRef.current;
+    const finalValidationStatus = {};
 
-    if (matrixC && Array.isArray(matrixC)) {
-        matrixC.forEach((row, i) => {
+    if (currentMatrixC && Array.isArray(currentMatrixC)) {
+        // Puntuar celdas marcadas que no fueron evaluadas por Simon
+        Object.keys(currentMarked).forEach(key => {
+            if (!currentSimonEvaluated[key]) {
+                const [ri, ci] = key.split('-').map(Number);
+                const cell = currentMatrixC[ri]?.[ci];
+                if (typeof cell === 'number') {
+                    if (isPrime(cell)) {
+                        revealScore += POINTS_PER_REVEALED_PRIME;
+                    } else {
+                        revealScore += POINTS_PENALTY_PER_REVEALED_NON_PRIME;
+                    }
+                }
+            }
+        });
+
+        // Construir validationStatus final para display
+        currentMatrixC.forEach((row, i) => {
             if (Array.isArray(row)) {
                 row.forEach((cell, j) => {
                     const key = `${i}-${j}`;
-                    // Marcar todas como reveladas visualmente para la fase 'results'
-                    finalRevealedStatus[key] = true;
-
-                    // Calcular puntos por revelación SOLO SI:
-                    // a) La celda FUE revelada por el jugador (revealedCellsC[key] es true)
-                    // b) La celda NO tiene un estado de validación ('validated' o 'failed')
-                    if (revealedCellsC[key] && !finalValidationStatus[key]) {
-                        if (isPrime(cell)) {
-                            revealScore += POINTS_PER_REVEALED_PRIME;
-                        } else {
-                            revealScore += POINTS_PENALTY_PER_REVEALED_NON_PRIME;
-                        }
+                    const valueIsPrime = typeof cell === 'number' && isPrime(cell);
+                    if (currentMarked[key] || currentSimonEvaluated[key]) {
+                        finalValidationStatus[key] = valueIsPrime ? 'validated' : 'failed';
                     }
                 });
             }
         });
-        console.log(`Calculated Reveal Score (for non-validated revealed cells): ${revealScore}`);
-        // Sumar el revealScore al findingScore (que ya tiene los puntos/penalizaciones de Simon)
-        // Usamos una función de actualización para asegurar que se basa en el estado más reciente
-        setFindingScore(prevFindingScore => prevFindingScore + revealScore);
 
-        // Establecer los estados visuales finales para la fase 'results'
-        setCellValidationStatus(finalValidationStatus); // Mantiene los estados de Simon
-        setRevealedCellsC(finalRevealedStatus); // Todas reveladas
+        console.log(`Calculated Reveal Score: ${revealScore}`);
+        setFindingScore(prev => Math.max(0, prev + revealScore));
+        setCellValidationStatus(finalValidationStatus);
     } else {
         console.error("Matrix C is invalid or null when finalizing phase!");
-         // Considerar volver a 'ready_to_calc' o mostrar error?
-         // Por ahora, procedemos a 'results' pero podría mostrar matriz vacía.
     }
 
     // 5. Cambiar de fase
     setGamePhase('results');
 
-  // Dependencias Clave:
-  // gamePhase: Para evitar ejecuciones múltiples.
-  // timer: Para calcular el bonus.
-  // cellValidationStatus, revealedCellsC, matrixC: Para calcular puntuación de revelación.
-  // showSimonSays: Para manejar interrupción.
-  // handleSimonFailure: Para llamar en caso de interrupción.
-  // Los setters de estado (setTimeBonus, setFindingScore, etc.) no necesitan ser dependencias.
-  }, [gamePhase, timer, cellValidationStatus, matrixC, showSimonSays, revealedCellsC, handleSimonFailure]);
+  // Sin gamePhase — se lee de gamePhaseRef. Identidad 100% estable
+  }, [handleSimonFailure]);
 
+
+  // --- Sincronizar endFindingPhaseRef ---
+  useEffect(() => { endFindingPhaseRef.current = endFindingPhase; }, [endFindingPhase]);
 
   // --- useEffect Hooks ---
 
@@ -308,51 +506,85 @@ const GameScreen = ({ playerName, currentLevelIndex, totalScore, onLevelComplete
        timerIntervalRef.current = setInterval(() => {
          setTimer(prevTime => {
            if (prevTime <= 1) {
-             // Limpiar aquí explícitamente antes de llamar a endFindingPhase
              if (timerIntervalRef.current) {
                  clearInterval(timerIntervalRef.current);
                  timerIntervalRef.current = null;
              }
              console.log("Timer reached <= 1, calling endFindingPhase.");
-             endFindingPhase(); // endFindingPhase ahora está en useCallback
-             return 0; // Asegurar que el estado del timer llegue a 0
+             endFindingPhaseRef.current(); // Ref, no closure directa
+             return 0;
            }
            return prevTime - 1;
          });
        }, 1000);
      }
 
-     // Función de Limpieza: Se ejecuta cuando gamePhase cambia O el componente se desmonta
+     // Función de Limpieza
      return () => {
-       // console.log("Clearing timer interval (Cleanup Effect for gamePhase change or unmount)");
        if (timerIntervalRef.current) {
           clearInterval(timerIntervalRef.current);
           timerIntervalRef.current = null;
        }
      };
-  // Depender de gamePhase y endFindingPhase (que es useCallback)
-  }, [gamePhase, endFindingPhase]);
+  // SOLO gamePhase — ya no depende de endFindingPhase
+  }, [gamePhase]);
 
+  // --- Feature 1: Teaching auto-play effect ---
+  useEffect(() => {
+    if (teachingIntervalRef.current) {
+      clearInterval(teachingIntervalRef.current);
+      teachingIntervalRef.current = null;
+    }
+
+    if (gamePhase === 'teaching' && teachingAutoPlay && teachingStepIndex < teachingStepsRef.current.length) {
+      teachingIntervalRef.current = setInterval(() => {
+        handleTeachingNext();
+      }, 600);
+    }
+
+    return () => {
+      if (teachingIntervalRef.current) {
+        clearInterval(teachingIntervalRef.current);
+        teachingIntervalRef.current = null;
+      }
+    };
+  }, [gamePhase, teachingAutoPlay, teachingStepIndex, handleTeachingNext]);
+
+  // Stop auto-play when teaching completes
+  useEffect(() => {
+    if (teachingStepIndex >= teachingStepsRef.current.length && teachingStepsRef.current.length > 0) {
+      setTeachingAutoPlay(false);
+      if (teachingIntervalRef.current) {
+        clearInterval(teachingIntervalRef.current);
+        teachingIntervalRef.current = null;
+      }
+    }
+  }, [teachingStepIndex]);
+
+
+  // --- Helpers de puntuación ---
+  const computeFinalLevelScore = () => {
+    return Math.max(0, findingScore + timeBonus);
+  };
 
   // --- Handlers de Finalización ---
   const handleNextLevel = () => {
     if (gamePhase === 'results') {
-        // findingScore ya incluye Simon + Revelación. timeBonus se calculó en endFindingPhase.
-        const finalLevelScore = currentLevel.points + findingScore + timeBonus;
-        console.log(`Proceeding to next level. Score for this level: ${finalLevelScore} (Base:${currentLevel.points} + FindTotal:${findingScore} + Time:${timeBonus})`);
-        onLevelComplete(finalLevelScore); // Pasar la puntuación TOTAL del nivel
-    } else {
-        console.warn("Attempting to proceed to next level outside of 'results' phase.");
+        const finalLevelScore = computeFinalLevelScore();
+        console.log(`Proceeding to next level. Score for this level: ${finalLevelScore}`);
+        onLevelComplete(finalLevelScore);
     }
   };
 
   const handleEndGameAndSave = () => {
-    // Solo sumar puntos si se llegó a la fase de resultados
-    const finalLevelScore = (gamePhase === 'results')
-                            ? (currentLevel.points + findingScore + timeBonus)
-                            : 0;
+    const finalLevelScore = (gamePhase === 'results') ? computeFinalLevelScore() : 0;
     console.log(`Ending game now. Score to add from this level: ${finalLevelScore}`);
-    onGameEnd(finalLevelScore); // Pasar la puntuación del nivel (o 0 si no terminó)
+    onGameEnd(finalLevelScore);
+  };
+
+  // --- Bug 4: Reintentar nivel ---
+  const handleRetryLevel = () => {
+    setupLevel();
   };
 
   // --- Renderizado ---
@@ -381,7 +613,7 @@ const GameScreen = ({ playerName, currentLevelIndex, totalScore, onLevelComplete
                 {gamePhase === 'results' && (
                     <p className="text-md text-green-400">Resultado Nivel: {findingScore} (Validación) + {timeBonus} (Tiempo)</p>
                 )}
-                <p className="flex items-center justify-center sm:justify-end text-xs text-gray-400">
+                <p className="flex items-center justify-center sm:justify-end text-sm text-gray-400">
                     <CpuIcon /> Algoritmo: {algorithmName}
                     {calcTime && <span className="ml-2 text-cyan-400">({calcTime} ms)</span>}
                 </p>
@@ -393,8 +625,15 @@ const GameScreen = ({ playerName, currentLevelIndex, totalScore, onLevelComplete
             <div className="font-['VT323'] text-center mb-4 p-3 bg-indigo-900 rounded-lg border border-indigo-700 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className='flex-grow text-center sm:text-left'>
                     <p className="text-xl font-semibold text-yellow-300">Fase de Detección</p>
-                    <p className="text-sm text-indigo-200">1. Clic en celda para revelar. 2. Clic en NÚMERO para validar (si sospechas que es primo).</p>
-                     <p className="text-sm text-indigo-200">Puntuación Validación: <span className='font-bold'>{findingScore}</span></p>
+                    <p className="text-base text-indigo-200">Clic izq: marcar/desmarcar sospechosa — Clic der: activar Protocolo Simon Says</p>
+                    <p className="text-base text-indigo-200">Puntuación Validación: <span className='font-bold'>{findingScore}</span> / <span className='text-accent-yellow'>{dynamicMinScore}</span> necesarios</p>
+                    <p className="text-base text-indigo-200">Naves ocultas detectables: <span className='font-bold text-console-green'>{primesInMatrix}</span></p>
+                    <p className="text-base text-indigo-200">
+                        {simonSaysUsed < currentLevel.simonSaysUses
+                          ? <>Protocolo Simon Says: <span className='font-bold text-accent-yellow'>{currentLevel.simonSaysUses - simonSaysUsed}</span> usos restantes</>
+                          : <span className='text-red-400 font-bold'>Protocolo Simon Says agotado</span>
+                        }
+                    </p>
                 </div>
                 <div className="flex items-center gap-2">
                     {/* Timer */}
@@ -408,7 +647,7 @@ const GameScreen = ({ playerName, currentLevelIndex, totalScore, onLevelComplete
                                 rounded-md border-2 border-yellow-600 hover:bg-yellow-400
                                 transform hover:scale-105 transition-all duration-150
                                 shadow-[0_0_10px_rgba(234,179,8,0.5)] hover:shadow-[0_0_20px_rgba(234,179,8,0.7)]
-                                disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                                disabled:opacity-50 disabled:cursor-not-allowed text-base"
                         title="Terminar búsqueda y ver resultados"
                         disabled={showSimonSays} // Deshabilitar si Simon está activo
                     >
@@ -424,7 +663,7 @@ const GameScreen = ({ playerName, currentLevelIndex, totalScore, onLevelComplete
                 <p className="text-xl font-semibold text-green-300">Análisis Completado</p>
                 <p className="text-lg">Puntuación Validación/Revelación: <span className="font-bold">{findingScore}</span> | Bonus Tiempo: <span className="font-bold">{timeBonus}</span></p>
                 {/* Leyenda de colores/iconos podría ir aquí o en MatrixDisplay */}
-                 <p className="text-xs text-gray-400 mt-1">Verde (Teal): Validado Correcto. Naranja: Fallido/Validado Incorrecto. Cian: Primo no validado/revelado. Gris: No primo no validado/revelado.</p>
+                 <p className="text-sm text-gray-400 mt-1">Verde (Teal): Validado Correcto. Naranja: Fallido/Validado Incorrecto. Cian: Primo no validado/revelado. Gris: No primo no validado/revelado.</p>
             </div>
         )}
 
@@ -434,45 +673,67 @@ const GameScreen = ({ playerName, currentLevelIndex, totalScore, onLevelComplete
                 key={`matrix-a-${currentLevelIndex}`}
                 matrix={matrixA}
                 title={currentLevel.matrixAName || "Matriz A"}
-                readOnly={true} // Siempre solo lectura para A y B
+                readOnly={true}
+                highlightRow={gamePhase === 'teaching' ? teachingHighlight.row : null}
             />
             <MatrixDisplay
                 key={`matrix-b-${currentLevelIndex}`}
                 matrix={matrixB}
                 title={currentLevel.matrixBName || "Matriz B"}
                 readOnly={true}
+                highlightCol={gamePhase === 'teaching' ? teachingHighlight.col : null}
             />
             <MatrixDisplay
-                key={`matrix-c-${currentLevelIndex}-${gamePhase}`} // Key cambia con la fase para forzar re-render si es necesario
-                matrix={matrixC}
+                key={`matrix-c-${currentLevelIndex}-${gamePhase}`}
+                matrix={gamePhase === 'teaching' ? (teachingComputedC || matrixC) : matrixC}
                 title={currentLevel.matrixCName || "Matriz C (Resultado)"}
-                gamePhaseForC={gamePhase} // Pasar fase para estilos condicionales
-                revealedStatus={revealedCellsC}
-                cellValidationStatus={cellValidationStatus}
-                onRevealCell={handleRevealCellC} // Para revelar al primer clic
-                onValidateCell={handleValidateCell} // Para validar al segundo clic (en el número)
-                // Interactuable solo en 'finding' Y cuando Simon NO está activo
+                gamePhaseForC={gamePhase === 'teaching' ? null : gamePhase}
+                cellValidationStatus={gamePhase === 'results' ? cellValidationStatus : null}
+                onCellClick={handleCellLeftClick}
+                onCellRightClick={handleCellRightClick}
+                markedCells={markedCells}
                 readOnly={gamePhase !== 'finding' || showSimonSays}
+                onCellHover={handleCellHoverC}
+                onCellHoverLeave={handleCellHoverLeave}
+                tooltipContent={tooltipFormula}
+                hoveredCell={hoveredCellC}
+                teachingRevealedCells={gamePhase === 'teaching' ? (() => {
+                  if (!teachingComputedC) return null;
+                  const revealed = {};
+                  teachingComputedC.forEach((row, i) => row.forEach((val, j) => {
+                    if (val !== null) revealed[`${i}-${j}`] = true;
+                  }));
+                  return revealed;
+                })() : null}
             />
         </div>
 
         {/* Controles Principales (Adaptados a las fases) */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mt-8 min-h-[60px]">
-            {/* Botón Calcular */}
+            {/* Botones ready_to_calc: Calcular + Teaching */}
             {gamePhase === 'ready_to_calc' && (
-                <button
-                    onClick={handleCalculate}
-                    className={`px-8 py-5 font-semibold font-['VT323']
-             rounded-md border-2 transform hover:scale-110 transition-all duration-150
-             flex items-center justify-center gap-2 text-lg w-full sm:w-auto
-             ${ /* Lógica de colores basada solo en gamePhase */
-               gamePhase !== 'ready_to_calc' // Si NO está listo para calcular
-                 ? 'bg-gray-700 text-gray-500 border-gray-600 cursor-not-allowed opacity-50' // Más opaco también
-                 : 'bg-mars-red text-white border-red-700 hover:bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)] hover:shadow-[0_0_25px_rgba(239,68,68,0.7)] animate-pulse' // Añadir pulse si está listo
-             }`}
-                >
-                    {currentLevel.calculateButtonText || "Iniciar Simulación"}
-                </button>
+                <>
+                    <button
+                        onClick={handleCalculate}
+                        className="px-8 py-5 font-semibold font-['VT323']
+                          rounded-md border-2 transform hover:scale-110 transition-all duration-150
+                          flex items-center justify-center gap-2 text-lg w-full sm:w-auto
+                          bg-mars-red text-white border-red-700 hover:bg-red-500
+                          shadow-[0_0_15px_rgba(239,68,68,0.5)] hover:shadow-[0_0_25px_rgba(239,68,68,0.7)] animate-pulse"
+                    >
+                        {currentLevel.calculateButtonText || "Iniciar Simulación"}
+                    </button>
+                    <button
+                        onClick={handleStartTeaching}
+                        className="px-6 py-4 font-semibold font-['VT323']
+                          rounded-md border-2 transform hover:scale-105 transition-all duration-150
+                          flex items-center justify-center gap-2 text-base w-full sm:w-auto
+                          bg-slate-700 text-console-green border-green-700 hover:bg-slate-600
+                          shadow-[0_0_10px_rgba(57,255,20,0.3)] hover:shadow-[0_0_20px_rgba(57,255,20,0.5)]"
+                    >
+                        Ver cómo se calcula
+                    </button>
+                </>
             )}
             {/* Indicador Calculando */}
             {gamePhase === 'calculating' && (
@@ -490,10 +751,40 @@ const GameScreen = ({ playerName, currentLevelIndex, totalScore, onLevelComplete
                   <p className='text-yellow-400 VT323 text-center'>Validando contacto (Simon Says)...</p>
              )}
 
-            {/* Botones Siguiente / Finalizar */}
-            {gamePhase === 'results' && (
+            {/* Botones Siguiente / Finalizar / Reintentar */}
+            {gamePhase === 'results' && (() => {
+                const finalLevelScore = computeFinalLevelScore();
+                const minScore = currentLevel.minScoreToPass === null ? null : dynamicMinScore;
+                const passed = minScore === null || finalLevelScore >= minScore;
+                return (
                 <>
-                    {!isLastLevel && (
+                    {/* Mensaje de resultado */}
+                    {passed ? (
+                        <p className="font-['VT323'] text-green-400 text-lg w-full text-center">
+                            Misión completada — acceso al siguiente sector autorizado
+                        </p>
+                    ) : (
+                        <p className="font-['VT323'] text-red-400 text-lg w-full text-center">
+                            Puntuación insuficiente — se requieren {minScore} puntos para avanzar. Obtuviste {finalLevelScore}.
+                        </p>
+                    )}
+
+                    {/* Botón reintentar (siempre visible si no pasó) */}
+                    {!passed && (
+                        <button
+                            onClick={handleRetryLevel}
+                            className="px-6 py-3 bg-orange-600 text-white font-['VT323']
+                                    rounded-md border-2 border-orange-700 hover:bg-orange-500
+                                    transform hover:scale-105 transition-all duration-150
+                                    shadow-[0_0_15px_rgba(234,88,12,0.5)] hover:shadow-[0_0_25px_rgba(234,88,12,0.7)]
+                                    text-lg w-full sm:w-auto"
+                        >
+                            Reintentar Misión
+                        </button>
+                    )}
+
+                    {/* Botón siguiente nivel — solo si pasó y no es último */}
+                    {passed && !isLastLevel && (
                         <button
                             onClick={handleNextLevel}
                             className="px-6 py-3 bg-venus-blue text-white font-['VT323']
@@ -505,6 +796,7 @@ const GameScreen = ({ playerName, currentLevelIndex, totalScore, onLevelComplete
                             Continuar: {LEVELS[currentLevelIndex + 1]?.name || "Siguiente Nivel"}
                         </button>
                     )}
+
                     <button
                         onClick={handleEndGameAndSave}
                         className="font-['VT323'] px-6 py-3 bg-green-600 text-white font-['VT323']
@@ -516,8 +808,43 @@ const GameScreen = ({ playerName, currentLevelIndex, totalScore, onLevelComplete
                         {isLastLevel ? 'Ver Informe Final (Guardar)' : 'Terminar Misión (Guardar)'}
                     </button>
                 </>
-            )}
+                );
+            })()}
         </div>
+
+        {/* Feature 4: Strassen Panel */}
+        {currentLevel.algorithm === 'strassen' && strassenBreakdown && (gamePhase === 'finding' || gamePhase === 'simon_says' || gamePhase === 'results') && (
+            <StrassenPanel
+                breakdown={strassenBreakdown}
+                isOpen={strassenPanelOpen}
+                onToggle={() => setStrassenPanelOpen(prev => !prev)}
+            />
+        )}
+
+        {/* Feature 1: Teaching Overlay */}
+        {gamePhase === 'teaching' && (
+            <TeachingOverlay
+                currentStep={teachingStepsRef.current[teachingStepIndex] || null}
+                totalSteps={teachingStepsRef.current.length}
+                stepIndex={teachingStepIndex}
+                matrixA={matrixA}
+                matrixB={matrixB}
+                autoPlay={teachingAutoPlay}
+                onNext={handleTeachingNext}
+                onToggleAuto={handleTeachingToggleAuto}
+                onSkipToEnd={handleTeachingSkipToEnd}
+                onContinue={handleTeachingContinue}
+                isComplete={teachingStepIndex >= teachingStepsRef.current.length}
+            />
+        )}
+
+        {/* Feature 3: Mission Briefing Modal */}
+        {gamePhase === 'briefing' && (
+            <MissionBriefing
+                level={currentLevel}
+                onDismiss={handleDismissBriefing}
+            />
+        )}
 
         {/* Modal Simon Says */}
         {showSimonSays && simonSaysTarget && (
@@ -526,7 +853,8 @@ const GameScreen = ({ playerName, currentLevelIndex, totalScore, onLevelComplete
                 difficulty={1 + currentLevelIndex * 0.15}
                 onSuccess={handleSimonSuccess}
                 onFailure={handleSimonFailure}
-                targetValue={simonSaysTarget.value} // Opcional: mostrar el número que se está validando
+
+                targetValue={simonSaysTarget.value}
             />
         )}
     </div>

@@ -159,31 +159,25 @@ function padMatrix(matrix, targetRows, targetCols) {
  * @returns {number[][]} - Matriz sin padding.
  */
 function unpadMatrix(matrix, originalRows, originalCols) {
-  // Validar entrada 
+  // Validar entrada
   if (!matrix || !Array.isArray(matrix)) {
     console.error("unpadMatrix recibió una matriz inválida:", matrix);
-    // Devolver una matriz vacía o lanzar un error podría ser una opción
-    return Array(originalRows).fill(0).map(() => Array(originalCols).fill(0)); // Devolver matriz de ceros como fallback
-}
-
-const resultMatrix = Array(originalRows).fill(0).map(() => Array(originalCols).fill(0));
-
-for (let i = 0; i < originalRows; i++) {
-  // Asegurarse de que la fila existe en la matriz con padding
-  if (!matrix[i]) {
-    console.warn(`Fila ${i} no encontrada en matriz con padding durante unpad.`);
-    continue; // Saltar esta fila, se quedará con ceros
+    return Array(originalRows).fill(0).map(() => Array(originalCols).fill(0));
   }
-  for (let j = 0; j < originalCols; j++) {
-    // Asegurarse de que la celda existe y es un número
-    if (typeof matrix[i][j] === 'number') {
-       resultMatrix[i][j] = matrix[i][j];
-    } else {
-       // Dejar el 0 por defecto si falta el valor o no es número
-       // console.warn(`Celda (${i}, ${j}) inválida o faltante en matriz con padding durante unpad.`);
+
+  const resultMatrix = Array(originalRows).fill(0).map(() => Array(originalCols).fill(0));
+
+  for (let i = 0; i < originalRows; i++) {
+    if (!matrix[i]) {
+      console.warn(`Fila ${i} no encontrada en matriz con padding durante unpad.`);
+      continue;
+    }
+    for (let j = 0; j < originalCols; j++) {
+      if (typeof matrix[i][j] === 'number') {
+        resultMatrix[i][j] = matrix[i][j];
+      }
     }
   }
-}
   return resultMatrix;
 }
 
@@ -388,6 +382,52 @@ export function multiplyMatricesStrassen(matrixA, matrixB) {
  * @param {number} num - El número a verificar.
  * @returns {boolean} - True si es primo, false en caso contrario.
  */
+/**
+ * Computa el desglose de primer nivel de Strassen para fines educativos.
+ * No modifica las funciones existentes. Solo necesita el primer nivel de la descomposición.
+ */
+export function computeStrassenBreakdown(matrixA, matrixB) {
+  if (!matrixA || !matrixB) return null;
+
+  const originalN = matrixA.length;
+  const n = nextPowerOf2(Math.max(matrixA.length, matrixA[0].length, matrixB[0].length));
+  const paddedA = padMatrix(matrixA, n, n);
+  const paddedB = padMatrix(matrixB, n, n);
+
+  const { a11, a12, a21, a22 } = splitMatrix(paddedA);
+  const { a11: bq11, a12: bq12, a21: bq21, a22: bq22 } = splitMatrix(paddedB);
+
+  const products = [
+    { name: 'M₁', formula: 'A₁₁ × (B₁₂ − B₂₂)', operands: [a11, subtractMatrices(bq12, bq22)] },
+    { name: 'M₂', formula: '(A₁₁ + A₁₂) × B₂₂', operands: [addMatrices(a11, a12), bq22] },
+    { name: 'M₃', formula: '(A₂₁ + A₂₂) × B₁₁', operands: [addMatrices(a21, a22), bq11] },
+    { name: 'M₄', formula: 'A₂₂ × (B₂₁ − B₁₁)', operands: [a22, subtractMatrices(bq21, bq11)] },
+    { name: 'M₅', formula: '(A₁₁ + A₂₂) × (B₁₁ + B₂₂)', operands: [addMatrices(a11, a22), addMatrices(bq11, bq22)] },
+    { name: 'M₆', formula: '(A₁₂ − A₂₂) × (B₂₁ + B₂₂)', operands: [subtractMatrices(a12, a22), addMatrices(bq21, bq22)] },
+    { name: 'M₇', formula: '(A₁₁ − A₂₁) × (B₁₁ + B₁₂)', operands: [subtractMatrices(a11, a21), addMatrices(bq11, bq12)] },
+  ];
+
+  const reconstruction = [
+    { name: 'C₁₁', formula: 'M₅ + M₄ − M₂ + M₆' },
+    { name: 'C₁₂', formula: 'M₁ + M₂' },
+    { name: 'C₂₁', formula: 'M₃ + M₄' },
+    { name: 'C₂₂', formula: 'M₅ + M₁ − M₃ − M₇' },
+  ];
+
+  const naiveOps = Math.pow(originalN, 3);
+  const strassenOps = Math.round(7 * Math.pow(n / 2, Math.log2(7)));
+
+  return {
+    products: products.map(p => ({ name: p.name, formula: p.formula })),
+    reconstruction,
+    operationComparison: {
+      dimension: originalN,
+      naive: naiveOps,
+      strassen: strassenOps,
+    },
+  };
+}
+
 export function isPrime(num) {
   if (num <= 1) return false; // 1 y menores no son primos
   if (num <= 3) return true;  // 2 y 3 son primos
